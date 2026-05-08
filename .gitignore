@@ -29,3 +29,6 @@ demo/.venv/
 
 # Paper build artifacts
 paper/VLDB.tex.pdf
+
+# Keep paper local only
+paper/

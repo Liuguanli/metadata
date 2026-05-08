@@ -5,11 +5,6 @@ Owner: Codex
 Current mode: Auto-validation and continuous execution
 CLI invocation: `metamirror ...` or `python3 -m metamirror ...`
 
-## External Paper Workspace
-
-- Overleaf local workspace: `/Users/guanlil1/Dropbox/应用/Overleaf/Metadata-management`
-- Sync rule: code and experiment updates in this repo should be mirrored to paper content via `paper/README.md`.
-
 ## Acceptance Protocol
 
 1. 我一次只推进一个任务，把它从 `TODO` 移到 `DOING`。
@@ -52,9 +47,7 @@ CLI invocation: `metamirror ...` or `python3 -m metamirror ...`
 
 ### Phase 8
 
-- [ ] Keep code-paper sync log updated in `paper/README.md` whenever results/claims change
-- [ ] For each substantial revision, create `paper/reviews/<cycle-id>.md` with reader/reviewer/meta-reviewer outputs
-- [ ] Keep VLDB Vision framing aligned with target tracks in `paper/VLDB_VISION_PLAYBOOK.md`
+- [ ] (none)
 
 ## DOING
 

@@ -27,8 +27,6 @@ demo/.venv/
 # macOS
 .DS_Store
 
-# Paper build artifacts
-paper/VLDB.tex.pdf
-
-# Keep paper local only
+# Keep local paper work private
+private_paper/
 paper/

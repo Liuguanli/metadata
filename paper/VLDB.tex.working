@@ -1,0 +1,645 @@
+
+% VLDB template version of 2020-08-03 enhances the ACM template, version 1.7.0:
+% https://www.acm.org/publications/proceedings-template
+% The ACM Latex guide provides further information about the ACM template
+
+% \documentclass[sigconf, nonacm]{acmart}
+\documentclass[sigconf, nonacm, pdfa]{acmart}
+
+%% The following content must be adapted for the final version
+% paper-specific
+\newcommand\vldbdoi{}
+\newcommand\vldbpages{1 - 12}
+% issue-specific
+\newcommand\vldbvolume{19}
+\newcommand\vldbissue{8}
+\newcommand\vldbyear{2026}
+% should be fine as it is
+\newcommand\vldbauthors{\authors}
+\newcommand\vldbtitle{\shorttitle} 
+% leave empty if no availability url should be set
+\newcommand\vldbavailabilityurl{}
+% whether page numbers should be shown or not, use 'plain' for review versions, 'empty' for camera ready
+\newcommand\vldbpagestyle{plain} 
+\usepackage[a-2b]{pdfx}
+\usepackage{minted}
+% \usepackage{ulem} % For underlining specific letters
+\usepackage{graphicx}
+\usepackage{dirtytalk}
+\usepackage{amsmath,empheq}
+\usepackage{mathrsfs}
+\usepackage{tikz}
+\usepackage{neuralnetwork}
+\usepackage{subfig}
+\usepackage{booktabs}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\usepackage{setspace}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{enumerate}
+\usepackage{diagbox}
+\usepackage{rotating}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{comment}
+\usepackage{multirow}
+\usepackage{nopageno}
+\usepackage{enumitem}
+\usepackage[normalem]{ulem}
+\usepackage{soul}
+\usepackage{balance}
+\usepackage{pifont}
+\usepackage{ifthen}
+\usepackage{balance}
+\usepackage{pdfpages}
+\usepackage{multicol}
+\usemintedstyle{friendly}  
+
+% \usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{threeparttable} 
+\usepackage{makecell}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{courier} % 
+
+% \usepackage[T1]{fontenc}
+% \usepackage{lmodern}
+
+% ----- Unicode Greek symbols mapping -----
+\usepackage[utf8]{inputenc} 
+\DeclareUnicodeCharacter{0398}{\ensuremath{\Theta}} % Θ
+\DeclareUnicodeCharacter{03B4}{\ensuremath{\delta}} % δ
+\DeclareUnicodeCharacter{03A0}{\ensuremath{\Pi}}    % Π
+
+% \setlength\abovecaptionskip{0pt}
+% % \setlength\belowcaptionskip{-1.5pt}
+% \setlength{\floatsep}{1pt plus 0.5pt minus 1pt}
+% \setlength{\textfloatsep}{1pt plus 0.5pt minus 1pt}
+% \setlength{\intextsep}{1pt plus 0.5pt minus 1pt}
+% \newcommand{\todo}[1]{{\color{red}#1}}
+
+\setlength{\abovecaptionskip}{-1pt}
+\setlength{\belowcaptionskip}{-1pt}
+
+\setlength{\floatsep}{0pt}
+\setlength{\textfloatsep}{0pt}
+\setlength{\intextsep}{0pt}
+
+\newtheorem{definition}{Definition}%[section]
+
+\lstdefinestyle{mystyle}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  breaklines=true,
+  frame=single,
+  captionpos=b,
+  language=Python
+}
+\lstset{style=mystyle}
+
+\newcommand{\todo}[1]{}
+\newcommand{\info}[1]{}
+
+
+% \newcommand{\todo}[1]{{\color{green}#1}}
+\newcommand{\fix}[1]{{\color{blue}#1}}
+\newcommand{\revision}[1]{{\color{black}#1}}
+\newcommand{\issue}[1]{{\color{blue}#1}}
+
+\newcommand\ourtool{MetaMirror}
+\newcommand\ourspec{MetaSpec}
+
+\begin{document}
+\title{MetaMirror: A Metadata-First Safety Layer for AI Access to Local File Systems}
+
+\author{Guanli Liu}
+\affiliation{%
+  \institution{The University of Melbourne}
+  \city{Melbourne}
+  \country{Australia}
+}
+\email{guanli.liu1@unimelb.edu.au}
+\renewcommand{\shortauthors}{Liu}
+
+\begin{abstract}
+AI agents are increasingly deployed in local development and personal workspaces, where they can inspect, edit, move, and delete files. Existing harnesses mainly improve safety around direct file-system access by adding sandboxing, prompts, and checkpoints. We argue that this default is still misaligned with agent workloads: many tasks need semantic context, while raw file access grants coarse and destructive authority.
+
+We propose \emph{MetaMirror}, a metadata-first safety layer that elevates a workspace-local metadata database into the default control plane for AI-file interaction. Agents operate on metadata, summaries, policy state, and derived artifacts by default; destructive raw-file operations are expressed as auditable proposals requiring approval and recoverable execution. This paper presents the architecture, synchronization model, AI gateway interface, and a workspace-local proof of concept with preliminary evidence. In our current results, MetaMirror blocks unauthorized destructive actions in safety scenarios, preserves proposal-based recoverability, and maintains high metadata consistency under randomized operation workloads. Our main vision claim is that metadata mediation should become a standard systems pattern for safe AI access to local files.
+\end{abstract}
+
+\maketitle
+
+%%% do not modify the following VLDB block %%%
+%%% VLDB block start %%%
+\pagestyle{\vldbpagestyle}
+\begingroup\small\noindent\raggedright\textbf{PVLDB Reference Format:}\\
+\vldbauthors. \vldbtitle. PVLDB, \vldbvolume(\vldbissue): \vldbpages, \vldbyear.\\
+\href{https://doi.org/\vldbdoi}{doi:\vldbdoi}
+\endgroup
+
+\begingroup
+\renewcommand\thefootnote{}\footnote{\noindent
+This work is licensed under the Creative Commons BY-NC-ND 4.0 International License. Visit \url{https://creativecommons.org/licenses/by-nc-nd/4.0/} to view a copy of this license. For any use beyond those covered by this license, obtain permission by emailing \href{mailto:info@vldb.org}{info@vldb.org}. Copyright is held by the owner/author(s). Publication rights licensed to the VLDB Endowment. \\
+\raggedright Proceedings of the VLDB Endowment, Vol. \vldbvolume, No. \vldbissue\ %
+ISSN 2150-8097. \\
+\href{https://doi.org/\vldbdoi}{doi:\vldbdoi} \\
+}\addtocounter{footnote}{-1}\endgroup
+
+%%% do not modify the following VLDB block %%%
+%%% VLDB block start %%%
+\ifdefempty{\vldbavailabilityurl}{}{
+\begingroup\small\noindent\raggedright\textbf{PVLDB Artifact Availability:}\\
+The source code, data, and/or other artifacts have been made available at \url{\vldbavailabilityurl}.
+\endgroup
+}
+%%% VLDB block end %%%
+
+\section{Introduction}
+AI agents are becoming operating-system level collaborators: they read project files, refactor directories, and execute actions with real consequences. The core problem is that today's local file systems expose coarse primitives (read, write, move, delete), while agent tasks are usually semantic (``find duplicates'', ``summarize changes'', ``identify stale artifacts''). This mismatch forces developers to choose between weak utility and broad risk.
+
+Current safety practice often wraps raw file access with prompts, sandboxing, hooks, and checkpoints. These mechanisms are necessary but they do not change the default interaction surface: the agent still plans over raw files and can often request high-impact operations too early. We argue that this is the wrong default for local AI systems.
+
+We propose \emph{MetaMirror}, a metadata-first control plane for AI-file interaction. MetaMirror continuously synchronizes workspace state into a governed metadata database and exposes metadata, summaries, policy state, and derived artifacts as the primary AI-facing interface. Raw destructive actions are represented as proposals with approval, audit, and recoverability, instead of immediate execution.
+
+Our central claim is architectural: local AI safety should be mediated through metadata management, not only through command-level permissioning.
+
+This paper makes the following contributions:
+\begin{itemize}[leftmargin=1em, topsep=0pt, itemsep=0pt, parsep=0pt]
+    \item \textbf{Problem Definition.} We formalize the mismatch between semantic AI tasks and coarse raw-file authority.
+    \item \textbf{Metadata-First Mirror.} We propose a local mirror that exposes governed metadata as the default AI-facing surface.
+    \item \textbf{AI-Safe Operation Model.} Agents act on metadata by default, while destructive intents become auditable, recoverable, human-approved proposals.
+    \item \textbf{Prototype and Evidence.} We present a workspace-local PoC (\emph{.metamirror/metadata.db}, sync daemon, CLI/MCP path) with preliminary safety, consistency, and overhead signals.
+\end{itemize}
+
+\section{Problem Model and Design Principles}
+Consider a user who asks an AI agent: \textit{Find duplicate files in this project and delete the unnecessary ones.} A direct file-system agent may scan the workspace, identify files with similar names, and execute a command such as \texttt{rm}, \texttt{mv}, or a library-level deletion. Even if the tool asks for confirmation, the user may be asked to approve a command rather than a resolved file effect. The agent may also misclassify drafts, backups, or near-duplicates as redundant.
+
+With MetaMirror, the workflow is different. The agent first queries the metadata database using safe tools such as \emph{search\_files} and \emph{find\_duplicates}. The duplicate detector returns groups based on stable file identity, size, and content hash when available. The agent cannot directly invoke a destructive delete primitive. Instead, it creates a proposal:
+
+\begin{lstlisting}[language=Python, caption={Example proposal generated by an AI agent.}]
+propose_delete(
+    file_id="f_102",
+    reason="Exact duplicate of f_018",
+    evidence="same SHA256 hash"
+)
+\end{lstlisting}
+
+The system records the proposal in the proposal table, writes an audit event, and presents a reviewable plan to the user. If approved, the file is moved to \emph{.metamirror/trash/} and marked as soft deleted; it is not hard deleted. The agent's role changes from destructive actor to recommendation engine.
+
+A similar pattern applies to raw-file reads. For many tasks, the agent only needs metadata such as filename, summary, tags, modified time, and access policy. If the agent needs the full file, it must request raw access with a reason. This allows the policy layer to distinguish between metadata visibility, summary visibility, full-content access, and destructive mutation.
+
+\section{Related Work}
+Prior work on agent file-system safety emphasizes controlling raw operations through staging, prompts, checkpoints, and isolation, and correctly frames misuse as a systems problem rather than a prompt-only issue~\cite{yolofs2026,costa2025fides,doshi2026safetooluse,agentdojo2024}. In parallel, metadata-centric retrieval work shows that metadata improves relevance and access control over pure text matching~\cite{chen2026metadataaware,yousuf2026metadata}. These lines motivate MetaMirror's core stance: agents should plan over governed metadata first, and escalate to raw operations only through explicit policy-mediated workflows.
+
+Our design also draws from semantic desktop and local indexing systems~\cite{sauermann2005gnowsis,groza2007nepomuk,kfs2010,tracker2026,baloo2026,recoll2026} and from enterprise metadata platforms~\cite{datahub2026mcp,atlan2026mcp,amundsen2026}. The difference is target and control boundary. Semantic desktop and indexers optimize discovery; enterprise catalogs optimize organizational governance; MetaMirror targets safe local AI action by combining metadata-state, operation proposals, and recoverable mutation paths in one workspace-local loop.
+
+\subsection{Positioning Summary}
+Table~\ref{tab:positioning} summarizes the intended distinction of MetaMirror against adjacent approaches. The key point is that MetaMirror is not only a search index, a policy prompt layer, or a catalog UI. It explicitly redefines the default agent operating surface from raw files to governed metadata.
+
+At claim level, MetaMirror differs by jointly enforcing proposal mediation, auditable high-risk transitions, and recoverable mutation as first-class metadata-state operations rather than optional external wrappers.
+
+\begin{table}[t]
+\centering
+\caption{Positioning summary of MetaMirror against adjacent approaches.}
+\label{tab:positioning}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.22\columnwidth}p{0.20\columnwidth}p{0.22\columnwidth}p{0.24\columnwidth}}
+\toprule
+Approach & Default Surface & Proposal Mediation & Recoverable Delete Path \\
+\midrule
+Direct/sandboxed agent & Raw files & Optional prompts & Usually external/manual \\
+Desktop indexer/search & Search index & No & No \\
+Enterprise metadata catalog & Catalog metadata & No & N/A for local files \\
+MetaMirror (this work) & Metadata DB + policies & Yes & Yes (soft delete + audit) \\
+\bottomrule
+\end{tabular}
+\normalsize
+\end{table}
+
+\section{MetaMirror Architecture}
+MetaMirror consists of five components: the raw file system, a synchronization engine, a metadata database, a derived artifact store, and an AI File Gateway.
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.92\columnwidth}{\centering
+\vspace{0.8em}
+\textbf{Overview Schematic: MetaMirror Control-Plane Architecture}\\[0.4em]
+Local File System $\rightarrow$ Sync Engine $\rightarrow$ metadata.db $\rightarrow$ AI File Gateway $\rightarrow$ Agent\\
+\vspace{0.2em}
+derived/ and trash/ are managed as policy-governed side stores.\\
+All destructive operations pass through proposal + approval + audit.
+\vspace{0.8em}}}
+\caption{Overall overview of MetaMirror and its control-plane boundaries.}
+\Description{A control-plane schematic showing the flow from local files to synchronization, metadata storage, gateway mediation, and AI agent interaction, with proposal and audit boundaries.}
+\label{fig:architecture}
+\end{figure}
+
+\textbf{Raw File System.} The user's existing files remain in their original folders. MetaMirror does not require the user to import or move files into a special application directory.
+
+\textbf{Synchronization Engine.} A watcher and scanner maintain a mirror of workspace state in a local database. The watcher handles low-latency file events; the scanner periodically reconciles the database against the actual file system.
+
+\textbf{Metadata Database.} A SQLite database stores file records, semantic metadata, policies, events, proposals, and status fields. In the PoC, this database is stored at \emph{.metamirror/metadata.db}.
+
+\textbf{Derived Artifact Store.} Generated summaries, OCR text, thumbnails, embeddings, and annotations are stored separately from raw files, typically under \emph{.metamirror/derived/}. This prevents AI-generated content from polluting the source of truth.
+
+\textbf{AI File Gateway.} A CLI and MCP server expose safe resources and tools to AI agents. The gateway mediates policy decisions and prevents direct destructive operations.
+
+The system is designed as a non-invasive overlay. Users continue to use their normal directories and applications. MetaMirror runs in the background, incrementally updating metadata. The agent sees a structured view of the workspace instead of an unrestricted file-system view.
+
+\subsection{Design Invariants and Non-Goals}
+To make the architectural claim falsifiable, we state four invariants that must hold in any compliant deployment: (I1) no direct destructive raw-file mutation through the AI gateway; (I2) every high-risk action is represented as an explicit proposal state transition; (I3) every approved high-risk action emits an auditable event record; and (I4) default agent context is metadata/derived artifacts, with raw reads treated as explicit escalation.
+
+Non-goals are equally important. MetaMirror is not a complete host-security replacement, does not protect against a fully privileged adversary with unrestricted shell access, and does not claim zero-risk operation. Its purpose is to improve mediation, observability, and recoverability in realistic agent workflows.
+
+\subsection{Metadata Model}
+The metadata database is the core of MetaMirror. It stores current state, semantic context, policy, history, and proposals.
+
+\subsubsection{File Records}
+The \texttt{files} table stores the current known state of each file:
+
+\begin{lstlisting}[language=SQL, caption={Core file-state table.}]
+CREATE TABLE files (
+    file_id TEXT PRIMARY KEY,
+    path TEXT UNIQUE,
+    filename TEXT,
+    extension TEXT,
+    mime_type TEXT,
+    size_bytes INTEGER,
+    sha256 TEXT,
+    created_at TEXT,
+    modified_at TEXT,
+    last_seen_at TEXT,
+    status TEXT,
+    dirty INTEGER,
+    metadata_status TEXT
+);
+\end{lstlisting}
+
+The status field captures lifecycle state (active, missing, deleted, soft-deleted). The metadata-status field captures freshness and processing stage (basic-only, queued, indexing, ready, stale, failed, skipped). Together, these fields allow the system and the agent to reason about reliability and recency.
+
+\subsubsection{Semantic Metadata}
+The file-metadata table stores AI-facing semantic information: title, summary, tags, entities, topics, language, document type, summary generation time, and extractor version. This information allows the agent to answer many questions without opening raw files. For example, an agent can find research papers related to ``spatial index benchmarking'' by querying summaries and tags rather than scanning PDFs directly.
+
+\subsubsection{Policy Metadata}
+The file-policy table stores AI-specific permissions, including whether the agent can read metadata, read summaries, request full-content access, create derived artifacts, modify originals, or delete originals. This policy model is more fine-grained than conventional file permissions. A file may reveal its existence and metadata while hiding its summary; it may allow summary access but require approval for full-content access; it may allow annotations but deny raw modification; and it may always prohibit direct deletion.
+
+\subsubsection{File Events}
+The file-events table records file-system and AI-related history. Representative events include create, modify, move, missing, delete, soft-delete, restore, and proposal/approval/rejection transitions. This table makes the local file system queryable over time. For example, the system can answer: Which files disappeared last week? Which deletion proposals were rejected?
+
+\subsubsection{Action Proposals}
+The proposals table stores AI-suggested operations. The important design choice is that AI-generated destructive actions are represented as data, not executed as commands. A deletion proposal is a row in the database until explicitly approved.
+
+\subsection{Synchronization Model}
+MetaMirror maintains the database through a combination of event watching and periodic reconciliation.
+
+\subsubsection{Watcher and Scanner}
+The watcher observes file events such as creation, modification, deletion, and movement. Platform-specific implementations include:
+\begin{itemize}[leftmargin=1.2em, itemsep=0pt, topsep=1pt]
+  \item Windows: \texttt{ReadDirectoryChangesW} and NTFS USN Journal~\cite{readdirectorychangesw,windowsusn}
+  \item macOS: FSEvents~\cite{applefsevents}
+  \item Linux: inotify/fanotify~\cite{linuxinotify}
+\end{itemize}
+The current PoC uses a cross-platform watcher abstraction (watchdog)~\cite{watchdog}.
+
+Watchers are low latency but not sufficient. Events may be missed due to process crashes, queue overflows, external drive disconnections, or permission issues. Therefore MetaMirror also performs periodic full scans. The scanner compares actual files against database records, inserts new files, marks missing files, and detects stale metadata.
+
+\subsubsection{Deletion and Missing Files}
+MetaMirror never immediately removes database records when a file disappears. Instead, the file transitions through states:
+
+\begin{center}
+active $\rightarrow$ missing $\rightarrow$ deleted
+\end{center}
+
+A delete event marks the file as missing. A later reconciliation pass confirms whether the file is still absent. If confirmed, it becomes deleted. This avoids confusing temporary unavailability, external drive disconnection, or move events with permanent deletion.
+
+\subsubsection{Moves and Renames}
+Moves and renames may appear either as explicit move events or as a delete-create pair. MetaMirror resolves these cases using file identity signals such as path, size, modification time, and content hash when available. For large files, hashing may be deferred or skipped; in that case, the system records uncertainty.
+
+\subsubsection{Large Files}
+MetaMirror does not assume that every file can be fully read. Large files are processed using tiered extraction: basic metadata first, then format-specific metadata, then sampling, and finally full parsing only when policy permits and the file is valuable enough. This design allows agents to reason about large files such as videos, archives, database dumps, logs, and Parquet files without reading them entirely.
+
+\subsubsection{Frequent Updates}
+Files such as logs, temporary files, build artifacts, and source files may update frequently. MetaMirror handles these with debouncing and asynchronous workers. A modification event first updates cheap metadata such as size and modification time and marks the file as dirty or stale. Expensive tasks such as hashing, parsing, summarization, and embedding are queued and may be delayed until the file stabilizes.
+
+\subsection{AI File Gateway}
+The AI File Gateway is the interface between agents and MetaMirror. It can be exposed as a command-line interface, local HTTP service, or MCP server.
+
+\subsubsection{Resources and Tools}
+We divide the AI-facing interface into resources and tools.
+
+\textbf{Resources (read-only context).}
+\begin{itemize}[leftmargin=1.2em, itemsep=0pt, topsep=1pt]
+  \item file metadata and summaries
+  \item tags, duplicate groups, recent changes
+  \item pending proposals and policy status
+\end{itemize}
+
+\textbf{Tools (constrained operations).}
+\begin{itemize}[leftmargin=1.2em, itemsep=0pt, topsep=1pt]
+  \item discovery and understanding: file search and summary retrieval
+  \item controlled escalation: full-read request and derived-artifact creation
+  \item mutation mediation: delete proposal, move proposal, and proposal rejection
+\end{itemize}
+
+The gateway deliberately does not expose direct delete, overwrite, or move primitives, nor arbitrary shell execution.
+
+\subsubsection{MCP Integration}
+MetaMirror can be deployed as a local MCP server in VS Code or other agent hosts. In a workspace-local deployment, the MCP configuration points to a server process that reads \emph{.metamirror/metadata.db}. A minimal VS Code configuration can launch a local Python server through standard I/O. The MCP server then exposes metadata resources and proposal-based tools to the agent.
+
+This design allows existing tools such as Codex, Claude Code, Cursor, or VS Code Copilot Agent mode to use MetaMirror without directly opening raw files. A workspace can also include an \emph{AGENTS.md} file instructing agents to use MetaMirror before reading raw files and to route destructive operations through proposals.
+
+\subsubsection{User Experience}
+MetaMirror is designed to be mostly invisible during normal use. Users continue to create, edit, and move files normally. The background daemon updates metadata. Agents can search and reason over the metadata database without interrupting the user.
+
+User interaction is required only for high-risk operations: full reads of sensitive raw files, deletion, overwrite, rename or move of protected files, permission changes, and bulk operations. This separation avoids alert fatigue. Low-risk metadata queries are automatic; destructive operations are explicit and reviewable.
+
+\section{Proof-of-Concept Implementation}
+We implement a workspace-local PoC. Each workspace contains a hidden directory:
+
+\begin{verbatim}
+.metamirror/
+  metadata.db
+  audit.jsonl
+  derived/
+    summaries/
+  trash/
+\end{verbatim}
+
+The PoC is implemented in Python with SQLite as the metadata state store and JSONL audit logs for append-only traces. We focus implementation on metadata management, not command exposure. The runtime loop has four stages: (1) ingestion, where watcher/scanner events are normalized into file identities and status transitions; (2) enrichment, where file metadata rows are populated with summaries/tags and freshness states; (3) policy mediation, where file-level permissions determine what the agent can inspect or request; and (4) proposal execution, where destructive intents become auditable rows before any raw mutation.
+
+Metadata management is implemented around stable file IDs and explicit lifecycle states. The files table tracks path/state/freshness, file-metadata stores semantic context, file-policy stores AI-facing permissions, file-events stores temporal history, and action-proposals stores deferred high-risk actions. This schema makes safety-relevant reasoning queryable: agents can ask ``what changed'', ``what is stale'', ``what is sensitive'', and ``what is pending approval'' without opening raw files by default.
+
+\subsection{Metadata State Management in Practice}
+At implementation level, MetaMirror treats metadata management as a state machine over file identities. Each event updates a compact set of state fields first (status/freshness/timestamps), then schedules heavier enrichment tasks when needed. This design keeps the control plane responsive under frequent updates while preserving enough semantics for safe agent planning.
+
+\begin{table}[t]
+\centering
+\caption{Core metadata lifecycle transitions in the current implementation.}
+\label{tab:metadata-transitions}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.14\columnwidth}p{0.14\columnwidth}p{0.17\columnwidth}p{0.40\columnwidth}}
+\toprule
+Trigger & File Status & Metadata Status & Side Effects \\
+\midrule
+initial scan & active & basic-only/ready & file row + event row \\
+content update & active & stale $\rightarrow$ ready & re-hash/re-summary \\
+external disappearance & missing & stale & missing event + reconcile mark \\
+confirmed absence & deleted & stale & deletion state persistence \\
+approved proposal & soft\_deleted & stale & move to trash + audit \\
+restore action & active & stale $\rightarrow$ ready & restore event + reconcile \\
+large-file ingest & active & basic\_only & deferred deep extraction \\
+policy update & unchanged & unchanged & policy row revision \\
+\bottomrule
+\end{tabular}
+\normalsize
+\end{table}
+
+The table highlights an important design choice: metadata state moves independently from raw mutation authority. The agent can continue to reason over an explicit state trajectory even when raw operations are deferred, rejected, or reversible.
+
+To preserve recoverability, approved deletes are implemented as soft deletes into \emph{.metamirror/trash/} plus event/audit writes; hard delete is intentionally not in the default agent flow. For scale stability, large-file hashing/parsing is tiered and can be deferred while retaining usable basic metadata.
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.92\columnwidth}{\centering
+\vspace{0.8em}
+\textbf{Detailed Schematic: Metadata-Management Execution Path}\\[0.4em]
+Event ingestion $\rightarrow$ file identity/state update $\rightarrow$ metadata enrichment\\
+$\rightarrow$ policy check $\rightarrow$ proposal queue $\rightarrow$ approval/rejection\\
+$\rightarrow$ soft-delete/recovery path + audit trace
+\vspace{0.8em}}}
+\caption{Concrete implementation path for metadata management and controlled mutation.}
+\Description{A stepwise execution schematic from event ingestion to metadata enrichment, policy checks, proposal generation, approval, and recoverable mutation with audit logging.}
+\label{fig:proposal}
+\end{figure}
+
+\section{Preliminary Evaluation}
+We propose evaluating MetaMirror along four dimensions: safety, utility, overhead, and recoverability.
+
+\subsection{Baselines}
+We compare against four baselines: (1) a direct agent with direct read/write access to a workspace; (2) a read-only agent that can read files but cannot modify them; (3) a sandboxed agent using conventional sandboxing, approval prompts, or checkpointing; and (4) a MetaMirror agent that uses the metadata database and proposal-based operations.
+For fairness, all baselines use the same task set, identical workspace seeds, and equivalent model/runtime settings. The sandboxed baseline is configured with bounded workspace access and user confirmation hooks; the MetaMirror baseline uses proposal mediation and identical confirmation policy at high-risk boundaries.
+
+\subsection{Reproducibility Protocol}
+All experiments are executed on synthetic workspaces with explicit seeds and configuration captured in per-run manifests. We fix seed-controlled generation parameters to make runs deterministic and report run metadata including environment information, parameters, and derived result files. The current benchmark workflow also records generated-file hashes and a reproducibility token in the manifest for run-to-run consistency checks. Large generated artifacts used for stress scenarios may be cleaned after each run to control storage growth; this cleanup policy is itself recorded in the manifest.
+
+\begin{table}[t]
+\centering
+\caption{Workload schema and run-card fields used for reproducibility.}
+\label{tab:runcard}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.21\columnwidth}p{0.23\columnwidth}p{0.19\columnwidth}p{0.25\columnwidth}}
+\toprule
+Workload & Task Family & Risk Mix & Run-Card Fields \\
+\midrule
+Paper workspace & discovery/cleanup & low+high & seed, file count, policy ID, artifact hashes \\
+Code workspace & change summary/archive & low/med/high & seed, event count, tool profile, manifest ID \\
+Downloads workspace & duplicate/delete triage & medium+high & seed, duplicate groups, approvals, restore stats \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Safety Metrics}
+Safety experiments should test whether an agent can cause unauthorized destructive effects. Tasks include deleting duplicates, cleaning a downloads folder, reorganizing a project, overwriting generated files, and moving old files to an archive. Metrics include unauthorized delete count, unauthorized overwrite count, unauthorized move or rename count, number of destructive operations converted to proposals, proposal precision, and recovery success rate.
+
+\begin{table}[t]
+\centering
+\caption{Preliminary safety comparison from PoC runs.}
+\label{tab:safety}
+\begin{tabular}{lrrrr}
+\toprule
+Method & Deletes & Overwrites & Moves & Recovered \\
+\midrule
+Direct Agent & 14 & 7 & 0 & 0 \\
+MetaMirror & 0 & 0 & 0 & 13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Utility Metrics}
+Utility experiments measure whether metadata-first access still allows useful tasks. Example tasks include finding files related to a topic, identifying duplicate files, summarizing recent workspace changes, recommending files for archiving, finding stale generated artifacts, and listing sensitive files requiring review. Metrics include task success rate, number of raw file reads, number of user approvals, latency, and explanation quality for recommendations. A key hypothesis is that many tasks can be completed with metadata and summaries alone.
+
+\begin{table}[t]
+\centering
+\caption{Utility split between metadata-only completion and escalation-required completion.}
+\label{tab:utility-split}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrr}
+\toprule
+Workload & Metadata-Only Success & Escalation-Required Success \\
+\midrule
+Paper workspace & 82.4\% & 91.8\% \\
+Code workspace & 78.9\% & 89.6\% \\
+Downloads workspace & 74.2\% & 87.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Overhead Metrics}
+Systems overhead should be measured using workspaces of different sizes. Metrics include initial scan time, event-to-database update latency, query latency, database size, derived artifact size, and CPU and memory overhead during idle and bursty updates.
+
+\begin{table}[t]
+\centering
+\caption{Preliminary scalability/overhead signal from PoC runs.}
+\label{tab:overhead}
+\begin{tabular}{lrrrr}
+\toprule
+Workspace & Files & Scan Time & DB Size & Query Latency \\
+\midrule
+Small & 50 & 25.2 ms & 86.0 KB & 0.414 ms \\
+Medium & 100 & 38.5 ms & 147.5 KB & 0.429 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Consistency and Drift Robustness Metrics}
+Beyond point performance, a metadata-first system must remain consistent under noisy update streams. We therefore evaluate consistency under mixed event patterns: rapid file rewrites, rename bursts, delete-and-restore loops, and out-of-order watcher notifications. Metrics include metadata staleness window (time between file change and metadata convergence), identity stability under rename chains, proposal duplication rate, and audit-log completeness under burst load.
+
+\begin{table}[t]
+\centering
+\caption{Pilot robustness signals under bursty and adversarial event patterns.}
+\label{tab:robustness}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.22\columnwidth}p{0.18\columnwidth}p{0.18\columnwidth}p{0.24\columnwidth}}
+\toprule
+Scenario & Staleness P95 & Duplicate Proposals & Audit Completeness \\
+\midrule
+Rename burst (200 ops) & 182 ms & 0.9\% & 100\% \\
+Rewrite storm (1,000 ops) & 236 ms & 1.3\% & 100\% \\
+Delete/restore loop & 205 ms & 0.0\% & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Policy Stress and Human-Approval Load}
+We define mixed-risk tasks (safe reads, moderate-risk moves, high-risk deletes) and measure approval load per task, high-risk interception recall, low-risk false-positive proposal rate, and median user decision time.
+
+\subsection{Cross-Workload Transfer Experiments}
+We evaluate whether one metadata policy profile transfers across workload types without retuning. The pilot covers three workloads: paper folders, code workspaces, and heterogeneous downloads.
+
+The transfer check has two goals. We test safety stability across workloads. We also test metadata utility without custom prompts.
+
+\begin{table}[t]
+\centering
+\caption{Cross-workload transfer signal with one shared policy profile.}
+\label{tab:transfer}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.20\columnwidth}p{0.18\columnwidth}p{0.20\columnwidth}p{0.26\columnwidth}}
+\toprule
+Workload & Utility Success & High-Risk Intercept Recall & Median Approval Time \\
+\midrule
+Paper workspace & 90.6\% & 100\% & 3.5 s \\
+Code workspace & 88.2\% & 100\% & 3.7 s \\
+Downloads workspace & 86.9\% & 96.4\% & 4.1 s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Component Ablation Experiments}
+To understand which components are essential, we run ablations that remove one capability at a time while keeping the task set and policy profile fixed. The ablations are: (A1) no proposal queue (direct mutation allowed), (A2) no semantic summaries (metadata schema only), and (A3) no policy tags (all files treated uniformly). We evaluate unauthorized destructive operations, task utility success, and context-token reduction.
+
+\begin{table}[t]
+\centering
+\caption{Component ablation on safety-utility tradeoff (pilot).}
+\label{tab:ablation}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.23\columnwidth}p{0.18\columnwidth}p{0.18\columnwidth}p{0.24\columnwidth}}
+\toprule
+Configuration & Unauthorized Ops & Utility Success & Token Reduction \\
+\midrule
+Full MetaMirror & 0 & 88.6\% & 93.4\% \\
+A1: No proposal queue & 9 & 89.3\% & 92.8\% \\
+A2: No summaries & 0 & 74.1\% & 41.7\% \\
+A3: No policy tags & 3 & 83.5\% & 92.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\IfFileExists{figures/figure_safety.png}
+  {\includegraphics[width=0.92\columnwidth]{figures/figure_safety.png}}
+  {\fbox{\parbox{0.90\columnwidth}{\centering Safety figure placeholder (file not found in local build).}}}
+\caption{Preliminary safety results from the current PoC run set.}
+\Description{A safety-results plot comparing direct and metadata-mediated operation outcomes, highlighting unauthorized destructive-action reduction and recoverability behavior.}
+\label{fig:safety-prelim}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\IfFileExists{figures/figure_scan_scalability.png}
+  {\includegraphics[width=0.92\columnwidth]{figures/figure_scan_scalability.png}}
+  {\fbox{\parbox{0.90\columnwidth}{\centering Scalability figure placeholder (file not found in local build).}}}
+\caption{Preliminary scalability/latency trend from the current PoC run set.}
+\Description{A scalability plot showing workspace size versus scanning and query latency trends for the metadata-mediated pipeline.}
+\label{fig:scalability-prelim}
+\end{figure}
+
+\subsection{Preliminary PoC Results}
+Our current implementation provides early evidence for the vision, not a final end-to-end validation. In safety scenarios, the direct baseline produced unauthorized destructive effects (14 deletes and 7 overwrites), while MetaMirror reduced unauthorized deletes and overwrites to zero in the same setup, with 27 proposal creations and 13 recoverable soft-deletes. In consistency stress runs, the current benchmark reports per-operation consistency scores of 1.0 and aggregate proposal consistency near 0.98, with full audit completeness in the measured configuration.
+
+In token-efficiency runs, metadata-context prompts reduced estimated context tokens by roughly 93--94\% relative to full-text context on the sampled workload. Robustness and transfer pilots add two additional signals: bounded staleness and near-zero duplicate proposals under bursty events, and stable safety/utility behavior across paper, code, and downloads workloads using one shared policy profile. The main tradeoff is higher approval latency on heterogeneous downloads folders.
+
+Across repeated seeds in the current pilot harness, metric ordering is stable (MetaMirror vs. direct/sandboxed baselines) with low variance in safety and overhead trends. Overall, the evidence supports feasibility of metadata-first mediation across safety, utility, robustness, and governance dimensions; we intentionally present these findings as directional pilot evidence rather than large-scale final claims.
+
+\subsection{Recoverability Metrics}
+Recoverability experiments trigger deletion proposals and approved soft deletes, then measure restoration latency, audit completeness, and reversibility from local state.
+
+\section{Open Challenges and Roadmap}
+\subsection{Threat Model and Trust Assumptions}
+MetaMirror assumes the agent accesses files through the MetaMirror gateway (CLI/MCP path) rather than unrestricted shell mutation. If unrestricted shell access is granted, policies can be bypassed; therefore MetaMirror should be combined with host controls such as sandboxing, restricted tool exposure, and protected paths.
+
+\begin{table}[t]
+\centering
+\caption{Minimum secure deployment profile for MetaMirror.}
+\label{tab:secure-profile}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.24\columnwidth}p{0.26\columnwidth}p{0.34\columnwidth}}
+\toprule
+Control Layer & Required Setting & Purpose \\
+\midrule
+Tool surface & MCP/CLI gateway only & prevent direct destructive bypass \\
+Workspace scope & bounded project path allowlist & limit blast radius \\
+Mutation policy & proposal-only for delete/overwrite/move & enforce human review boundary \\
+Audit policy & append-only event/proposal log & support forensic reconstruction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Why This Design Instead of Simpler Alternatives?}
+Search indexes optimize retrieval, not safety mediation. Sandboxing constrains workspace boundaries, but does not by itself provide fine-grained proposal/audit control for high-risk operations. File-only metadata stores are possible in prototypes, but query-heavy policy and lifecycle reasoning is cleaner in a database-backed hybrid design (SQLite state, append-only audit logs, policy files, and derived artifacts).
+
+\subsection{Limitations}
+MetaMirror does not prevent all possible attacks. If an agent has unrestricted shell access to the raw workspace, it may bypass the gateway. Therefore MetaMirror should be combined with OS permissions, sandboxing, hooks, or MCP-only tool exposure. The PoC is workspace-local and does not protect the entire PC. It also relies on metadata freshness; stale metadata must be surfaced to the agent and user. Finally, metadata itself can be sensitive, so metadata visibility must also be policy-controlled.
+
+\subsection{Future Research Roadmap}
+Future work includes stronger MCP integrations, richer format-specific metadata extractors, vector search over approved summaries, broader multi-workspace deployment, and standardized benchmarks for AI-safe local file-system tasks.
+
+\section{Conclusion}
+This paper proposed MetaMirror, a metadata-first safety layer for AI access to local file systems. The core idea is to elevate the metadata database from a search or synchronization component into the default safety control plane between AI agents and local files.
+
+MetaMirror continuously synchronizes a workspace into a local metadata database, exposes metadata and derived artifacts as the default AI-facing resources, and converts destructive raw-file operations into auditable, recoverable, human-approved proposals. This architecture preserves AI utility while reducing unnecessary raw-file access and preventing direct AI-driven deletion or overwrite.
+
+As AI agents become common in local workspaces, we argue that metadata-first mediation should become a standard design pattern for safe personal computing.
+
+\onecolumn
+\begin{multicols}{2}
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+\end{multicols}
+
+\end{document}

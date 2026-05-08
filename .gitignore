@@ -1,0 +1,31 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+
+# Local runtime/workspace data
+.metamirror/
+
+# Generated experiment outputs (very large, reproducible)
+experiment_results/
+
+# Demo dependencies
+demo/node_modules/
+demo/.venv/
+
+# LaTeX build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.xmpi
+*.synctex.gz
+
+# macOS
+.DS_Store
+
+# Paper build artifacts
+paper/VLDB.tex.pdf

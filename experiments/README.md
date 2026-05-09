@@ -9,6 +9,17 @@ Important:
 - No paper text and no bibliography handling are embedded here.
 - Outputs are clean data artifacts: CSV, JSONL, and JSON manifest files.
 
+### Agent model in case studies
+
+The agent in our case studies is a **deterministic oracle, not an LLM**. It
+encodes plausible workspace-cleanup intents (find duplicates, archive old
+files, trim large files) and executes them either through raw filesystem
+ops (Direct mode) or through the MetaMirror gateway (MetaMirror mode). This
+isolates the *mediation* effect of MetaMirror from the variability of an
+LLM-backed agent. Driving a real LLM-backed agent (Codex, Claude Code,
+Cursor) on the same task set is left to future work and is tracked as an
+open challenge in the paper.
+
 ## 1) Synthetic workspace generation
 
 ```bash

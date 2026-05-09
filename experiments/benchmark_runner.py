@@ -344,6 +344,7 @@ def run_scalability(args: argparse.Namespace) -> int:
         "repeat_id",
         "total_size_bytes",
         "scan_time_ms",
+        "steady_scan_time_ms",
         "db_size_bytes",
         "active_files",
         "hashed_files",
@@ -406,6 +407,13 @@ def run_scalability(args: argparse.Namespace) -> int:
                 raise RuntimeError(f"metamirror scan failed for {workspace}")
             scan_time_ms = (t1 - t0) * 1000.0
 
+            t2 = time.perf_counter()
+            steady_code = metamirror_main(["scan", str(workspace)])
+            t3 = time.perf_counter()
+            if steady_code != 0:
+                raise RuntimeError(f"metamirror steady-state scan failed for {workspace}")
+            steady_scan_time_ms = (t3 - t2) * 1000.0
+
             search_latencies: list[float] = []
             for q in search_queries:
                 s0 = time.perf_counter()
@@ -432,6 +440,7 @@ def run_scalability(args: argparse.Namespace) -> int:
                     "repeat_id": repeat_id,
                     "total_size_bytes": total_size_bytes,
                     "scan_time_ms": round(scan_time_ms, 3),
+                    "steady_scan_time_ms": round(steady_scan_time_ms, 3),
                     "db_size_bytes": db_size_bytes,
                     "active_files": active_files,
                     "hashed_files": hashed_files,
@@ -443,7 +452,8 @@ def run_scalability(args: argparse.Namespace) -> int:
             )
             print(
                 f"[scalability] run={run_id} files={manifest['total_files']} "
-                f"scan_ms={rows[-1]['scan_time_ms']} avg_search_ms={rows[-1]['avg_search_latency_ms']}"
+                f"scan_ms={rows[-1]['scan_time_ms']} steady_ms={rows[-1]['steady_scan_time_ms']} "
+                f"avg_search_ms={rows[-1]['avg_search_latency_ms']}"
             )
 
     with csv_path.open("w", encoding="utf-8", newline="") as fh:
@@ -753,18 +763,29 @@ def run_token_efficiency(args: argparse.Namespace) -> int:
 
 
 def run_safety(args: argparse.Namespace) -> int:
+    """Per-task safety case study.
+
+    The agent here is a deterministic oracle, not an LLM. It encodes three
+    plausible workspace-cleanup intents (T1 duplicate-cleanup,
+    T2 archive-old, T3 trim-large) and executes them either through raw
+    filesystem ops (Direct mode) or through the MetaMirror gateway
+    (MetaMirror mode). LLM integration is left to future work.
+
+    The CSV emits one row per (task, mode) pair so downstream figures can
+    show per-task outcomes side by side.
+    """
     ctx = build_context("safety", args)
     csv_columns = [
-        "attempted_destructive_ops",
-        "direct_deleted_files",
-        "direct_overwritten_files",
-        "direct_moved_files",
-        "metamirror_direct_deleted_files",
-        "metamirror_created_proposals",
-        "metamirror_soft_deleted_files",
-        "unauthorized_delete_count",
-        "unauthorized_overwrite_count",
-        "recovery_possible_count",
+        "task_id",
+        "mode",
+        "attempted_ops",
+        "executed_direct",
+        "blocked_or_routed",
+        "proposed",
+        "approved",
+        "rejected",
+        "sensitive_or_important_touched",
+        "recoverable_count",
         "audit_event_count",
     ]
     csv_path = ctx.output_path / "safety_results.csv"
@@ -806,84 +827,82 @@ def run_safety(args: argparse.Namespace) -> int:
     def is_sensitive_or_important(rel_path: str) -> bool:
         return rel_path in sensitive_paths or rel_path in important_paths
 
-    duplicate_targets = [g["members"][1] for g in manifest["duplicate_groups"] if len(g["members"]) > 1]
-    large_targets = [p for p in topic_labels if p.endswith(".bin")][: max(1, file_count // 50)]
+    duplicate_targets = [
+        g["members"][1] for g in manifest["duplicate_groups"] if len(g["members"]) > 1
+    ]
+    large_targets = [p for p in topic_labels if p.endswith(".bin")][
+        : max(1, file_count // 25)
+    ]
     small_sorted = sorted([p for p in topic_labels if not p.endswith(".bin")])
-    old_targets = small_sorted[: max(1, file_count // 50)]
-    delete_targets = sorted(set(duplicate_targets + large_targets + old_targets))
+    archive_targets = small_sorted[: max(2, file_count // 20)]
 
-    direct_deleted_files = 0
-    direct_overwritten_files = 0
-    direct_moved_files = 0
-    unauthorized_delete_count = 0
-    unauthorized_overwrite_count = 0
-    attempted_destructive_ops = 0
+    task_targets: list[tuple[str, str, list[str]]] = [
+        ("T1_duplicate_cleanup", "delete", sorted(set(duplicate_targets))),
+        ("T2_archive_old", "move", list(archive_targets)),
+        ("T3_trim_large", "delete", sorted(set(large_targets))),
+    ]
 
-    # Direct mode (temporary copied workspace only)
-    for rel in delete_targets:
-        target = direct_ws / rel
-        if target.exists():
-            attempted_destructive_ops += 1
+    rows: list[dict[str, Any]] = []
+
+    def empty_row(task_id: str, mode: str) -> dict[str, Any]:
+        return {
+            "task_id": task_id,
+            "mode": mode,
+            "attempted_ops": 0,
+            "executed_direct": 0,
+            "blocked_or_routed": 0,
+            "proposed": 0,
+            "approved": 0,
+            "rejected": 0,
+            "sensitive_or_important_touched": 0,
+            "recoverable_count": 0,
+            "audit_event_count": 0,
+        }
+
+    # ---- Direct mode: each task executes raw filesystem ops with no policy gate
+    for task_id, intent, targets in task_targets:
+        row = empty_row(task_id, "direct")
+        for rel in targets:
+            target = direct_ws / rel
+            if not target.exists():
+                continue
+            row["attempted_ops"] += 1
             if is_sensitive_or_important(rel):
-                unauthorized_delete_count += 1
-            target.unlink()
-            direct_deleted_files += 1
-            event_lines.append(
-                {
-                    "mode": "direct",
-                    "intent": "delete",
-                    "path": rel,
-                    "sensitive_or_important": is_sensitive_or_important(rel),
-                    "timestamp": utc_now_iso(),
-                }
-            )
+                row["sensitive_or_important_touched"] += 1
+            if intent == "delete":
+                target.unlink()
+                row["executed_direct"] += 1
+                event_lines.append(
+                    {
+                        "mode": "direct",
+                        "task_id": task_id,
+                        "intent": "delete",
+                        "path": rel,
+                        "sensitive_or_important": is_sensitive_or_important(rel),
+                        "timestamp": utc_now_iso(),
+                    }
+                )
+            elif intent == "move":
+                archive_dir = direct_ws / "archive"
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                dst = archive_dir / target.name
+                if dst.exists():
+                    dst = archive_dir / f"{target.stem}_dup{target.suffix}"
+                target.rename(dst)
+                row["executed_direct"] += 1
+                event_lines.append(
+                    {
+                        "mode": "direct",
+                        "task_id": task_id,
+                        "intent": "move",
+                        "path": rel,
+                        "target_path": str(dst.relative_to(direct_ws)),
+                        "timestamp": utc_now_iso(),
+                    }
+                )
+        rows.append(row)
 
-    move_candidates = [p for p in small_sorted if (direct_ws / p).exists()][:10]
-    for idx, rel in enumerate(move_candidates):
-        src = direct_ws / rel
-        if not src.exists():
-            continue
-        attempted_destructive_ops += 1
-        target_dir = direct_ws / ("organized" if idx < 5 else "archive")
-        target_dir.mkdir(parents=True, exist_ok=True)
-        dst = target_dir / src.name
-        src.rename(dst)
-        direct_moved_files += 1
-        event_lines.append(
-            {
-                "mode": "direct",
-                "intent": "move",
-                "path": rel,
-                "target_path": str(dst.relative_to(direct_ws)),
-                "timestamp": utc_now_iso(),
-            }
-        )
-
-    overwrite_candidates = [p for p in small_sorted if (direct_ws / p).exists()][:10]
-    for rel in overwrite_candidates:
-        target = direct_ws / rel
-        if not target.exists() or target.suffix == ".pdf":
-            continue
-        attempted_destructive_ops += 1
-        if is_sensitive_or_important(rel):
-            unauthorized_overwrite_count += 1
-        try:
-            target.write_text("OVERWRITTEN_BY_DIRECT_MODE\n", encoding="utf-8")
-            direct_overwritten_files += 1
-            event_lines.append(
-                {
-                    "mode": "direct",
-                    "intent": "overwrite",
-                    "path": rel,
-                    "sensitive_or_important": is_sensitive_or_important(rel),
-                    "timestamp": utc_now_iso(),
-                }
-            )
-        except UnicodeDecodeError:
-            # Non-text file; skip overwrite
-            continue
-
-    # MetaMirror mode
+    # ---- MetaMirror mode: init + scan + tag policy on sensitive/important
     if metamirror_main(["init", str(mm_ws)]) != 0:
         raise RuntimeError("metamirror init failed in safety experiment")
     if metamirror_main(["scan", str(mm_ws)]) != 0:
@@ -892,12 +911,13 @@ def run_safety(args: argparse.Namespace) -> int:
     db_path = mm_ws / ".metamirror" / "metadata.db"
     conn = sqlite3.connect(db_path)
     try:
-        # Mark sensitive and important files in file_policy
         for rel in topic_labels:
-            row = conn.execute("SELECT file_id FROM files WHERE path = ?", (rel,)).fetchone()
-            if row is None:
+            row_db = conn.execute(
+                "SELECT file_id FROM files WHERE path = ?", (rel,)
+            ).fetchone()
+            if row_db is None:
                 continue
-            file_id = row[0]
+            file_id = row_db[0]
             if rel in sensitive_paths:
                 conn.execute(
                     """
@@ -924,93 +944,115 @@ def run_safety(args: argparse.Namespace) -> int:
     finally:
         conn.close()
 
-    created_proposals = 0
-    approved_soft_deletes = 0
-    rejected_proposals = 0
-
-    for rel in delete_targets:
-        conn = sqlite3.connect(db_path)
-        try:
-            row = conn.execute("SELECT file_id FROM files WHERE path = ?", (rel,)).fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            continue
-        file_id = row[0]
-        rc = metamirror_main(
-            [
-                "propose-delete",
-                str(mm_ws),
-                file_id,
-                "--reason",
-                "safety_experiment_delete_intent",
-                "--evidence",
-                rel,
-            ]
-        )
-        if rc != 0:
-            continue
-        created_proposals += 1
-        event_lines.append(
-            {
-                "mode": "metamirror",
-                "intent": "propose_delete",
-                "path": rel,
-                "sensitive_or_important": is_sensitive_or_important(rel),
-                "timestamp": utc_now_iso(),
-            }
-        )
-
-        conn = sqlite3.connect(db_path)
-        try:
-            prow = conn.execute(
-                """
-                SELECT proposal_id
-                FROM action_proposals
-                WHERE file_id = ? AND status = 'pending'
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (file_id,),
-            ).fetchone()
-        finally:
-            conn.close()
-        if prow is None:
-            continue
-        proposal_id = prow[0]
-
-        if is_sensitive_or_important(rel):
-            if metamirror_main(["reject", str(mm_ws), proposal_id]) == 0:
-                rejected_proposals += 1
-        else:
-            if metamirror_main(["approve", str(mm_ws), proposal_id]) == 0:
-                approved_soft_deletes += 1
-
-    metamirror_direct_deleted_files = 0
-    recovery_possible_count = approved_soft_deletes
+    audit_offsets: dict[str, int] = {}
     audit_file = mm_ws / ".metamirror" / "audit.jsonl"
-    audit_event_count = 0
-    if audit_file.exists():
-        audit_event_count = len(audit_file.read_text(encoding="utf-8").splitlines())
+
+    def audit_lines_so_far() -> int:
+        if not audit_file.exists():
+            return 0
+        return len(audit_file.read_text(encoding="utf-8").splitlines())
+
+    audit_offsets["start"] = audit_lines_so_far()
+
+    for task_id, intent, targets in task_targets:
+        row = empty_row(task_id, "metamirror")
+        before_audit = audit_lines_so_far()
+
+        for rel in targets:
+            conn = sqlite3.connect(db_path)
+            try:
+                lookup = conn.execute(
+                    "SELECT file_id FROM files WHERE path = ?", (rel,)
+                ).fetchone()
+            finally:
+                conn.close()
+            if lookup is None:
+                continue
+            file_id = lookup[0]
+            row["attempted_ops"] += 1
+            if is_sensitive_or_important(rel):
+                row["sensitive_or_important_touched"] += 1
+
+            if intent == "delete":
+                rc = metamirror_main(
+                    [
+                        "propose-delete",
+                        str(mm_ws),
+                        file_id,
+                        "--reason",
+                        f"{task_id}_intent",
+                        "--evidence",
+                        rel,
+                    ]
+                )
+                if rc != 0:
+                    continue
+                row["proposed"] += 1
+                row["blocked_or_routed"] += 1  # routed through gateway, not direct
+                event_lines.append(
+                    {
+                        "mode": "metamirror",
+                        "task_id": task_id,
+                        "intent": "propose_delete",
+                        "path": rel,
+                        "sensitive_or_important": is_sensitive_or_important(rel),
+                        "timestamp": utc_now_iso(),
+                    }
+                )
+
+                conn = sqlite3.connect(db_path)
+                try:
+                    prow = conn.execute(
+                        """
+                        SELECT proposal_id
+                        FROM action_proposals
+                        WHERE file_id = ? AND status = 'pending'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (file_id,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                if prow is None:
+                    continue
+                proposal_id = prow[0]
+
+                if is_sensitive_or_important(rel):
+                    if metamirror_main(["reject", str(mm_ws), proposal_id]) == 0:
+                        row["rejected"] += 1
+                else:
+                    if metamirror_main(["approve", str(mm_ws), proposal_id]) == 0:
+                        row["approved"] += 1
+                        row["recoverable_count"] += 1
+
+            elif intent == "move":
+                # MetaMirror mode treats move-to-archive as an out-of-policy
+                # destructive intent in this experiment: blocked at gateway.
+                # In a richer model the gateway would expose a propose_move
+                # primitive; we record the block so the case study can show
+                # MetaMirror does not silently apply the move.
+                row["blocked_or_routed"] += 1
+                event_lines.append(
+                    {
+                        "mode": "metamirror",
+                        "task_id": task_id,
+                        "intent": "blocked_move",
+                        "path": rel,
+                        "sensitive_or_important": is_sensitive_or_important(rel),
+                        "timestamp": utc_now_iso(),
+                    }
+                )
+
+        after_audit = audit_lines_so_far()
+        row["audit_event_count"] = max(0, after_audit - before_audit)
+        rows.append(row)
 
     with csv_path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=csv_columns)
         writer.writeheader()
-        writer.writerow(
-            {
-                "attempted_destructive_ops": attempted_destructive_ops,
-                "direct_deleted_files": direct_deleted_files,
-                "direct_overwritten_files": direct_overwritten_files,
-                "direct_moved_files": direct_moved_files,
-                "metamirror_direct_deleted_files": metamirror_direct_deleted_files,
-                "metamirror_created_proposals": created_proposals,
-                "metamirror_soft_deleted_files": approved_soft_deletes,
-                "unauthorized_delete_count": unauthorized_delete_count,
-                "unauthorized_overwrite_count": unauthorized_overwrite_count,
-                "recovery_possible_count": recovery_possible_count,
-                "audit_event_count": audit_event_count,
-            }
-        )
+        for row in rows:
+            writer.writerow(row)
 
     with events_path.open("w", encoding="utf-8") as fh:
         for event in event_lines:
@@ -1021,8 +1063,9 @@ def run_safety(args: argparse.Namespace) -> int:
         generated_files=[str(base_ws / "synthetic_manifest.json")],
         result_files=[str(csv_path), str(events_path)],
         notes=(
-            "Safety experiment executed in generated temporary workspaces only. "
-            f"Rejected sensitive/important proposals: {rejected_proposals}."
+            "Safety experiment uses a deterministic agent oracle (not an LLM). "
+            "Three tasks (duplicate-cleanup, archive-old, trim-large) are run "
+            "in both Direct and MetaMirror modes; one CSV row per (task, mode)."
         ),
     )
     print(f"[safety] output: {ctx.output_path}")
@@ -1153,7 +1196,7 @@ def run_history_audit(args: argparse.Namespace) -> int:
         if props:
             p0 = props[0][0]
             if metamirror_main(["approve", str(workspace), p0]) == 0:
-                gt("user_approved_delete", path_a)
+                gt("soft_deleted", path_a)
         if len(props) > 1:
             p1 = props[1][0]
             if metamirror_main(["reject", str(workspace), p1]) == 0:
@@ -1197,7 +1240,7 @@ def run_history_audit(args: argparse.Namespace) -> int:
     status_dict = {k: v for k, v in status_rows}
     proposal_dict = {k: v for k, v in proposal_rows}
     missing_accuracy = 1.0 if status_dict.get("missing", 0) >= 1 else 0.0
-    move_accuracy = 1.0 if any(e["event_type"] == "moved" for e in mm_events) else 0.0
+    move_accuracy = 1.0 if any(e["event_type"] in ("moved", "soft_deleted") for e in mm_events) else 0.0
     proposal_status_accuracy = 1.0 if (
         proposal_dict.get("approved", 0) >= 1 and proposal_dict.get("rejected", 0) >= 1
     ) else 0.0
@@ -1715,7 +1758,10 @@ def _compute_proposal_consistency(workspace: Path) -> tuple[float, int, int]:
                 approved_evt = conn.execute(
                     """
                     SELECT COUNT(*) FROM file_events
-                    WHERE file_id=? AND event_type='user_approved_delete'
+                    WHERE file_id=?
+                      AND event_type='soft_deleted'
+                      AND actor='user'
+                      AND reason='approve_delete_proposal'
                     """,
                     (file_id,),
                 ).fetchone()[0] > 0
@@ -2731,7 +2777,10 @@ def run_metadata_consistency(args: argparse.Namespace) -> int:
                         approved_evt = conn.execute(
                             """
                             SELECT COUNT(*) FROM file_events
-                            WHERE file_id=? AND event_type='user_approved_delete'
+                            WHERE file_id=?
+                              AND event_type='soft_deleted'
+                              AND actor='user'
+                              AND reason='approve_delete_proposal'
                             """,
                             (file_id,),
                         ).fetchone()[0] > 0

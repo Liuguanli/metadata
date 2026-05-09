@@ -52,19 +52,25 @@ def prepare_scan_scalability(input_dir: Path, output_dir: Path) -> bool:
     out_rows: list[dict[str, Any]] = []
     for file_count, items in sorted(by_count.items(), key=lambda kv: int(kv[0])):
         scan_vals = [float(x["scan_time_ms"]) for x in items]
+        steady_vals = [
+            float(x["steady_scan_time_ms"])
+            for x in items
+            if x.get("steady_scan_time_ms") not in (None, "")
+        ]
         db_vals = [float(x["db_size_bytes"]) for x in items]
         search_vals = [float(x["avg_search_latency_ms"]) for x in items]
         dup_vals = [float(x["duplicate_detection_time_ms"]) for x in items]
-        out_rows.append(
-            {
-                "file_count": int(file_count),
-                "mean_scan_time_ms": statistics.mean(scan_vals),
-                "std_scan_time_ms": statistics.pstdev(scan_vals) if len(scan_vals) > 1 else 0.0,
-                "mean_db_size_bytes": statistics.mean(db_vals),
-                "mean_search_latency_ms": statistics.mean(search_vals),
-                "mean_duplicate_detection_time_ms": statistics.mean(dup_vals),
-            }
-        )
+        row: dict[str, Any] = {
+            "file_count": int(file_count),
+            "mean_scan_time_ms": statistics.mean(scan_vals),
+            "std_scan_time_ms": statistics.pstdev(scan_vals) if len(scan_vals) > 1 else 0.0,
+            "mean_steady_scan_time_ms": statistics.mean(steady_vals) if steady_vals else "",
+            "std_steady_scan_time_ms": statistics.pstdev(steady_vals) if len(steady_vals) > 1 else 0.0,
+            "mean_db_size_bytes": statistics.mean(db_vals),
+            "mean_search_latency_ms": statistics.mean(search_vals),
+            "mean_duplicate_detection_time_ms": statistics.mean(dup_vals),
+        }
+        out_rows.append(row)
 
     write_csv(
         output_dir / "figure_scan_scalability.csv",
@@ -72,6 +78,8 @@ def prepare_scan_scalability(input_dir: Path, output_dir: Path) -> bool:
             "file_count",
             "mean_scan_time_ms",
             "std_scan_time_ms",
+            "mean_steady_scan_time_ms",
+            "std_steady_scan_time_ms",
             "mean_db_size_bytes",
             "mean_search_latency_ms",
             "mean_duplicate_detection_time_ms",
@@ -90,34 +98,40 @@ def prepare_safety(input_dir: Path, output_dir: Path) -> bool:
     if not rows:
         warn("safety_results.csv empty; skip figure_safety.csv")
         return False
-    r = rows[0]
-    out_rows = [
-        {
-            "baseline": "direct",
-            "unauthorized_delete_count": int(r["unauthorized_delete_count"]),
-            "unauthorized_overwrite_count": int(r["unauthorized_overwrite_count"]),
-            "created_proposals": 0,
-            "soft_deleted_files": 0,
-            "recovery_possible_count": 0,
-        },
-        {
-            "baseline": "metamirror",
-            "unauthorized_delete_count": 0,
-            "unauthorized_overwrite_count": 0,
-            "created_proposals": int(r["metamirror_created_proposals"]),
-            "soft_deleted_files": int(r["metamirror_soft_deleted_files"]),
-            "recovery_possible_count": int(r["recovery_possible_count"]),
-        },
-    ]
+
+    out_rows: list[dict[str, Any]] = []
+    for r in rows:
+        out_rows.append(
+            {
+                "task_id": r["task_id"],
+                "mode": r["mode"],
+                "attempted_ops": int(r["attempted_ops"]),
+                "executed_direct": int(r["executed_direct"]),
+                "blocked_or_routed": int(r["blocked_or_routed"]),
+                "proposed": int(r["proposed"]),
+                "approved": int(r["approved"]),
+                "rejected": int(r["rejected"]),
+                "sensitive_or_important_touched": int(
+                    r["sensitive_or_important_touched"]
+                ),
+                "recoverable_count": int(r["recoverable_count"]),
+                "audit_event_count": int(r["audit_event_count"]),
+            }
+        )
     write_csv(
         output_dir / "figure_safety.csv",
         [
-            "baseline",
-            "unauthorized_delete_count",
-            "unauthorized_overwrite_count",
-            "created_proposals",
-            "soft_deleted_files",
-            "recovery_possible_count",
+            "task_id",
+            "mode",
+            "attempted_ops",
+            "executed_direct",
+            "blocked_or_routed",
+            "proposed",
+            "approved",
+            "rejected",
+            "sensitive_or_important_touched",
+            "recoverable_count",
+            "audit_event_count",
         ],
         out_rows,
     )

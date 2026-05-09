@@ -51,18 +51,32 @@ def plot_scan_scalability(input_dir: Path, output_dir: Path) -> bool:
     x = [int(r["file_count"]) for r in rows]
     scan_mean = [float(r["mean_scan_time_ms"]) for r in rows]
     scan_std = [float(r["std_scan_time_ms"]) for r in rows]
+    has_steady = all(r.get("mean_steady_scan_time_ms") not in (None, "") for r in rows)
+    if has_steady:
+        steady_mean = [float(r["mean_steady_scan_time_ms"]) for r in rows]
+        steady_std = [float(r.get("std_steady_scan_time_ms") or 0.0) for r in rows]
+    else:
+        steady_mean = []
+        steady_std = []
     db_size_mb = [float(r["mean_db_size_bytes"]) / (1024.0 * 1024.0) for r in rows]
     search_latency = [float(r["mean_search_latency_ms"]) for r in rows]
     dup_latency = [float(r["mean_duplicate_detection_time_ms"]) for r in rows]
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     ax = axes[0][0]
-    ax.errorbar(x, scan_mean, yerr=scan_std, marker="o", capsize=4, color="#1f77b4")
+    ax.errorbar(x, scan_mean, yerr=scan_std, marker="o", capsize=4, color="#1f77b4", label="Cold scan")
+    if has_steady:
+        ax.errorbar(x, steady_mean, yerr=steady_std, marker="s", capsize=4, color="#2ca02c", label="Steady-state")
+        ax.legend(loc="upper left", fontsize=9)
     ax.set_title("A) Scan Time")
     ax.set_xlabel("File Count")
     ax.set_ylabel("ms")
-    ax.grid(alpha=0.3)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.grid(alpha=0.3, which="both")
     _annotate_points(ax, x, scan_mean, "{:.1f}")
+    if has_steady:
+        _annotate_points(ax, x, steady_mean, "{:.1f}")
 
     ax = axes[0][1]
     ax.plot(x, db_size_mb, marker="o", color="#2ca02c")
@@ -103,37 +117,58 @@ def plot_safety(input_dir: Path, output_dir: Path) -> bool:
         warn("figure_safety.csv empty")
         return False
 
-    baselines = [r["baseline"] for r in rows]
-    unauth_delete = [int(r["unauthorized_delete_count"]) for r in rows]
-    unauth_overwrite = [int(r["unauthorized_overwrite_count"]) for r in rows]
-    proposals = [int(float(r["created_proposals"])) for r in rows]
-    soft_deleted = [int(float(r["soft_deleted_files"])) for r in rows]
-    recovery = [int(float(r["recovery_possible_count"])) for r in rows]
+    by_key = {(r["task_id"], r["mode"]): r for r in rows}
+    task_order = ["T1_duplicate_cleanup", "T2_archive_old", "T3_trim_large"]
+    task_titles = {
+        "T1_duplicate_cleanup": "T1: Duplicate Cleanup",
+        "T2_archive_old": "T2: Archive Old",
+        "T3_trim_large": "T3: Trim Large",
+    }
+    modes = ["direct", "metamirror"]
+    mode_labels = {"direct": "Direct", "metamirror": "MetaMirror"}
+    metric_keys = [
+        ("executed_direct", "Raw mutations", "#d62728"),
+        ("sensitive_or_important_touched", "Sensitive touched", "#ff9896"),
+        ("recoverable_count", "Recoverable", "#2ca02c"),
+    ]
 
-    x = list(range(len(baselines)))
-    width = 0.35
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), sharey=False)
+    width = 0.28
+    x_positions = list(range(len(metric_keys)))
 
-    ax = axes[0]
-    ax.bar([i - width / 2 for i in x], unauth_delete, width=width, label="Unauthorized Delete", color="#d62728")
-    ax.bar([i + width / 2 for i in x], unauth_overwrite, width=width, label="Unauthorized Overwrite", color="#ff9896")
-    ax.set_xticks(x, baselines)
-    ax.set_title("A) Risk Exposure")
-    ax.set_ylabel("Count")
-    ax.grid(axis="y", alpha=0.3)
-    ax.legend()
+    for ax, task in zip(axes, task_order):
+        if (task, "direct") not in by_key or (task, "metamirror") not in by_key:
+            ax.set_title(f"{task_titles.get(task, task)}\n(no data)")
+            ax.axis("off")
+            continue
+        for offset, mode in enumerate(modes):
+            r = by_key[(task, mode)]
+            heights = [int(r[key]) for key, _, _ in metric_keys]
+            xs = [i + (offset - 0.5) * width for i in x_positions]
+            colors = [c for _, _, c in metric_keys]
+            for xi, h, c in zip(xs, heights, colors):
+                hatch = "//" if mode == "metamirror" else None
+                ax.bar(xi, h, width=width, color=c, hatch=hatch, edgecolor="white")
+                if h > 0:
+                    ax.annotate(
+                        str(h),
+                        (xi, h),
+                        textcoords="offset points",
+                        xytext=(0, 4),
+                        ha="center",
+                        fontsize=8,
+                    )
+        ax.set_xticks(x_positions, [name for _, name, _ in metric_keys], fontsize=9)
+        ax.set_title(task_titles.get(task, task), fontsize=11)
+        ax.grid(axis="y", alpha=0.3)
+        ax.set_ylabel("Count")
 
-    ax = axes[1]
-    ax.bar([i - width for i in x], proposals, width=width, label="Created Proposals", color="#1f77b4")
-    ax.bar(x, soft_deleted, width=width, label="Soft-Deleted", color="#2ca02c")
-    ax.bar([i + width for i in x], recovery, width=width, label="Recovery Possible", color="#9467bd")
-    ax.set_xticks(x, baselines)
-    ax.set_title("B) Safe Operation Outcomes")
-    ax.set_ylabel("Count")
-    ax.grid(axis="y", alpha=0.3)
-    ax.legend()
-
-    fig.suptitle("Safety Baseline Comparison", fontsize=14)
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, color="#888", label=mode_labels["direct"]),
+        plt.Rectangle((0, 0), 1, 1, color="#888", hatch="//", label=mode_labels["metamirror"]),
+    ]
+    fig.legend(handles=legend_handles, loc="upper center", ncol=2, fontsize=10, frameon=False)
+    fig.suptitle("Per-Task Safety Outcomes (Direct vs MetaMirror)", fontsize=13, y=1.02)
     _save(fig, output_dir, "figure_safety")
     return True
 

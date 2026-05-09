@@ -114,15 +114,15 @@ def test_approve_proposal_moves_file_to_trash_and_marks_soft_deleted(tmp_path: P
         "SELECT path, status FROM files WHERE file_id = "
         f"'{file_id}'",
     )
-    events_count = _fetch_one(
+    soft_deleted_row = _fetch_one(
         db_path,
-        "SELECT COUNT(*) FROM file_events WHERE evidence = "
-        f"'{proposal_id}' AND event_type IN ('soft_deleted', 'user_approved_delete')",
+        "SELECT COUNT(*), MAX(actor), MAX(reason) FROM file_events WHERE evidence = "
+        f"'{proposal_id}' AND event_type = 'soft_deleted'",
     )
-    moved_deleted_count = _fetch_one(
+    legacy_event_count = _fetch_one(
         db_path,
         "SELECT COUNT(*) FROM file_events WHERE evidence = "
-        f"'{proposal_id}' AND event_type IN ('moved', 'deleted')",
+        f"'{proposal_id}' AND event_type IN ('moved', 'deleted', 'user_approved_delete')",
     )
 
     assert proposal_state is not None and proposal_state[0] == "approved"
@@ -131,8 +131,11 @@ def test_approve_proposal_moves_file_to_trash_and_marks_soft_deleted(tmp_path: P
     assert file_state[0].startswith(".metamirror/trash/")
     assert not target.exists()
     assert (tmp_path / file_state[0]).exists()
-    assert events_count is not None and events_count[0] == 2
-    assert moved_deleted_count is not None and moved_deleted_count[0] == 2
+    assert soft_deleted_row is not None
+    assert soft_deleted_row[0] == 1
+    assert soft_deleted_row[1] == "user"
+    assert soft_deleted_row[2] == "approve_delete_proposal"
+    assert legacy_event_count is not None and legacy_event_count[0] == 0
 
 
 def test_restore_soft_deleted_file_marks_active_and_emits_restored(tmp_path: Path) -> None:

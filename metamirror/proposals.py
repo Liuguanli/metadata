@@ -7,6 +7,7 @@ import shutil
 from uuid import uuid4
 
 from metamirror.db import connect_db, metamirror_dir
+from metamirror.utils import utc_now
 
 
 @dataclass
@@ -15,10 +16,6 @@ class DeleteProposalResult:
     file_id: str
     path: str
     status: str
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def create_delete_proposal(
@@ -30,7 +27,7 @@ def create_delete_proposal(
     ws_path = Path(workspace).resolve()
     proposal_id = str(uuid4())
     event_id = str(uuid4())
-    now = _utc_now()
+    now = utc_now()
 
     with connect_db(ws_path) as conn:
         row = conn.execute(
@@ -128,7 +125,7 @@ def approve_delete_proposal(
     proposal_id: str,
 ) -> ApproveProposalResult:
     ws_path = Path(workspace).resolve()
-    now = _utc_now()
+    now = utc_now()
 
     with connect_db(ws_path) as conn:
         row = conn.execute(
@@ -180,37 +177,7 @@ def approve_delete_proposal(
                 event_id, file_id, event_type, old_path, new_path,
                 actor, reason, evidence, created_at
             )
-            VALUES (?, ?, 'moved', ?, ?, 'system', 'trash_move', ?, ?)
-            """,
-            (str(uuid4()), file_id, rel_path, new_rel_path, proposal_id, now),
-        )
-        conn.execute(
-            """
-            INSERT INTO file_events (
-                event_id, file_id, event_type, old_path, new_path,
-                actor, reason, evidence, created_at
-            )
-            VALUES (?, ?, 'deleted', ?, ?, 'system', 'soft_delete_to_trash', ?, ?)
-            """,
-            (str(uuid4()), file_id, rel_path, new_rel_path, proposal_id, now),
-        )
-        conn.execute(
-            """
-            INSERT INTO file_events (
-                event_id, file_id, event_type, old_path, new_path,
-                actor, reason, evidence, created_at
-            )
-            VALUES (?, ?, 'soft_deleted', ?, ?, 'system', 'approve_delete', ?, ?)
-            """,
-            (str(uuid4()), file_id, rel_path, new_rel_path, proposal_id, now),
-        )
-        conn.execute(
-            """
-            INSERT INTO file_events (
-                event_id, file_id, event_type, old_path, new_path,
-                actor, reason, evidence, created_at
-            )
-            VALUES (?, ?, 'user_approved_delete', ?, ?, 'user', 'proposal_approved', ?, ?)
+            VALUES (?, ?, 'soft_deleted', ?, ?, 'user', 'approve_delete_proposal', ?, ?)
             """,
             (str(uuid4()), file_id, rel_path, new_rel_path, proposal_id, now),
         )
@@ -255,7 +222,7 @@ def reject_proposal(
     proposal_id: str,
 ) -> RejectProposalResult:
     ws_path = Path(workspace).resolve()
-    now = _utc_now()
+    now = utc_now()
 
     with connect_db(ws_path) as conn:
         row = conn.execute(
@@ -284,6 +251,7 @@ def reject_proposal(
             """,
             (proposal_id,),
         )
+
         conn.execute(
             """
             INSERT INTO file_events (
@@ -311,7 +279,7 @@ def restore_soft_deleted_file(
 ) -> RestoreResult:
     ws_path = Path(workspace).resolve()
     mm_root = metamirror_dir(ws_path).resolve()
-    now = _utc_now()
+    now = utc_now()
 
     with connect_db(ws_path) as conn:
         row = conn.execute(
@@ -401,7 +369,7 @@ def expire_proposal(
     proposal_id: str,
 ) -> ExpireProposalResult:
     ws_path = Path(workspace).resolve()
-    now = _utc_now()
+    now = utc_now()
 
     with connect_db(ws_path) as conn:
         row = conn.execute(

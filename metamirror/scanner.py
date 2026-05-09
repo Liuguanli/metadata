@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from metamirror.db import connect_db
 from metamirror.extractor import EXTRACTOR_VERSION, extract_summary_preview
+from metamirror.utils import utc_now
 
 
 EXCLUDED_DIR_NAMES = {
@@ -28,10 +29,6 @@ HASH_SIZE_LIMIT_BYTES = 100 * 1024 * 1024
 @dataclass
 class ScanResult:
     scanned_files: int
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _file_id_for_path(path: Path) -> str:
@@ -64,7 +61,7 @@ def _sha256_file(path: Path) -> str:
 
 def scan_workspace(workspace: str | Path) -> ScanResult:
     ws_path = Path(workspace).resolve()
-    now = _utc_now()
+    now = utc_now()
     scanned = 0
 
     seen_paths: set[str] = set()
@@ -80,9 +77,11 @@ def scan_workspace(workspace: str | Path) -> ScanResult:
             mime_type, _ = mimetypes.guess_type(file_path.name)
             extension = file_path.suffix.lower() if file_path.suffix else None
             existing = conn.execute(
-                "SELECT file_id, modified_at, size_bytes FROM files WHERE path = ?",
+                "SELECT file_id, modified_at, size_bytes, sha256, metadata_status FROM files WHERE path = ?",
                 (rel_path,),
             ).fetchone()
+
+            modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
 
             if existing:
                 file_id = existing[0]
@@ -92,6 +91,14 @@ def scan_workspace(workspace: str | Path) -> ScanResult:
             if stat.st_size > HASH_SIZE_LIMIT_BYTES:
                 sha256_value = None
                 metadata_status = "basic_only"
+            elif (
+                existing
+                and existing[1] == modified_at
+                and existing[2] == stat.st_size
+                and existing[3] is not None
+            ):
+                sha256_value = existing[3]
+                metadata_status = existing[4] or "basic_only"
             else:
                 sha256_value = _sha256_file(file_path)
                 metadata_status = "basic_only"
@@ -154,7 +161,6 @@ def scan_workspace(workspace: str | Path) -> ScanResult:
                     (file_id, summary_preview, now, EXTRACTOR_VERSION),
                 )
 
-            modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
             if existing is None:
                 conn.execute(
                     """

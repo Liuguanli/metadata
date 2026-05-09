@@ -97,6 +97,9 @@ def _schema_statements() -> list[str]:
             FOREIGN KEY(file_id) REFERENCES files(file_id)
         );
         """,
+        "CREATE INDEX IF NOT EXISTS idx_events_created_at ON file_events(created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_events_file_id ON file_events(file_id);",
+        "CREATE INDEX IF NOT EXISTS idx_proposals_status ON action_proposals(status);",
     ]
 
 
@@ -105,6 +108,8 @@ def connect_db(workspace: str | Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
     return conn
 
 
@@ -119,21 +124,20 @@ def init_db(workspace: str | Path) -> Path:
 
 def fetch_status_summary(workspace: str | Path) -> dict[str, str | int | None]:
     with connect_db(workspace) as conn:
-        total_files = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-        active_files = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE status = 'active'"
-        ).fetchone()[0]
-        missing_files = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE status = 'missing'"
-        ).fetchone()[0]
-        soft_deleted_files = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE status = 'soft_deleted'"
-        ).fetchone()[0]
-        deleted_files = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE status = 'deleted'"
-        ).fetchone()[0]
-        last_seen_at = conn.execute("SELECT MAX(last_seen_at) FROM files").fetchone()[0]
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(status = 'active'), 0),
+                COALESCE(SUM(status = 'missing'), 0),
+                COALESCE(SUM(status = 'soft_deleted'), 0),
+                COALESCE(SUM(status = 'deleted'), 0),
+                MAX(last_seen_at)
+            FROM files
+            """
+        ).fetchone()
 
+    total_files, active_files, missing_files, soft_deleted_files, deleted_files, last_seen_at = row
     return {
         "total_files": total_files,
         "active_files": active_files,
@@ -144,11 +148,15 @@ def fetch_status_summary(workspace: str | Path) -> dict[str, str | int | None]:
     }
 
 
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def search_files(workspace: str | Path, query: str, limit: int = 50) -> list[dict[str, str | None]]:
-    like_query = f"%{query}%"
+    like_query = f"%{_escape_like(query)}%"
     with connect_db(workspace) as conn:
         rows = conn.execute(
-            """
+            r"""
             SELECT
                 f.file_id,
                 f.path,
@@ -162,10 +170,10 @@ def search_files(workspace: str | Path, query: str, limit: int = 50) -> list[dic
             LEFT JOIN file_metadata AS fm ON fm.file_id = f.file_id
             LEFT JOIN file_policy AS fp ON fp.file_id = f.file_id
             WHERE
-                f.filename LIKE ?
-                OR f.path LIKE ?
-                OR COALESCE(fm.summary, '') LIKE ?
-                OR COALESCE(fm.tags, '') LIKE ?
+                f.filename LIKE ? ESCAPE '\'
+                OR f.path LIKE ? ESCAPE '\'
+                OR COALESCE(fm.summary, '') LIKE ? ESCAPE '\'
+                OR COALESCE(fm.tags, '') LIKE ? ESCAPE '\'
             ORDER BY f.modified_at DESC
             LIMIT ?
             """,
@@ -257,31 +265,18 @@ def list_proposals(
     limit: int = 200,
 ) -> list[dict[str, str | None]]:
     with connect_db(workspace) as conn:
-        if status:
-            rows = conn.execute(
-                """
-                SELECT
-                    proposal_id, action_type, file_id, proposed_target, reason, evidence,
-                    status, created_by, created_at, approved_at, executed_at
-                FROM action_proposals
-                WHERE status = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (status, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT
-                    proposal_id, action_type, file_id, proposed_target, reason, evidence,
-                    status, created_by, created_at, approved_at, executed_at
-                FROM action_proposals
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(
+            """
+            SELECT
+                proposal_id, action_type, file_id, proposed_target, reason, evidence,
+                status, created_by, created_at, approved_at, executed_at
+            FROM action_proposals
+            WHERE (? IS NULL OR status = ?)
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (status, status, limit),
+        ).fetchall()
 
     keys = [
         "proposal_id",

@@ -17,6 +17,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def configure_plot_style() -> None:
+    # Keep figure typography visually consistent with paper-style serif fonts.
+    plt.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "Times", "Nimbus Roman", "DejaVu Serif"],
+            "mathtext.fontset": "stix",
+            "axes.titlesize": 12,
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 9,
+            "figure.titlesize": 13,
+            "axes.linewidth": 0.8,
+            "grid.linewidth": 0.5,
+            "lines.linewidth": 1.8,
+        }
+    )
+
+
 def read_csv(path: Path) -> list[dict[str, str]]:
     return list(csv.DictReader(path.open("r", encoding="utf-8")))
 
@@ -411,6 +431,7 @@ def plot_token_efficiency(input_dir: Path, output_dir: Path) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_plot_style()
     parser = build_parser()
     args = parser.parse_args(argv)
     input_dir = Path(args.input).resolve()
